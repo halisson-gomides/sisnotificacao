@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% block title %}Monitor - Notificação{% endblock %}
+
+{% block content %}
+<div class="container mx-auto p-4 max-w-md">
+    <div class="bg-white rounded-lg shadow-lg p-6">
+        <h1 class="text-2xl font-bold text-center mb-6 text-blue-600">
+            📱 Monitor Infantil
+        </h1>
+        
+        <!-- Banner para ativar notificações -->
+        <div id="notification-permission-banner" class="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200" style="display:none;">
+            <div class="flex items-center justify-between">
+                <div class="text-sm text-yellow-800">
+                Ative as notificações do navegador para ser avisado quando a mídia visualizar um código.
+                </div>
+                <button id="enable-notifications" class="ml-3 bg-yellow-600 text-white px-3 py-2 rounded hover:bg-yellow-700">
+                Ativar Notificações
+                </button>
+            </div>
+        </div>
+
+        <!-- Status de Conexão -->
+        <div id="connection-status" class="mb-4 p-3 rounded-lg bg-gray-100">
+            <div class="flex justify-between items-center text-sm">
+                <span>📡 Status: <span id="ws-status" class="font-medium">Conectando...</span></span>
+                <span>👥 Monitores: <span id="monitor-count" class="font-medium">0</span></span>
+                <span>📺 Displays: <span id="display-count" class="font-medium">0</span></span>
+            </div>
+        </div>
+        
+        <form id="notification-form" 
+              hx-post="/api/send-notification" 
+              hx-target="#response"
+              class="space-y-4">
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Código da Criança:
+                </label>
+                <input type="text" 
+                       name="child_code" 
+                       required
+                       class="w-full px-3 py-3 border border-gray-300 rounded-lg text-lg text-center"
+                       maxlength="20">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Prioridade:
+                </label>
+                <select name="priority" class="w-full px-3 py-3 border border-gray-300 rounded-lg">
+                    <option value="normal" selected>🟢 Normal</option>
+                    <option value="urgente">🔴 Urgente</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Mensagem (opcional):
+                </label>
+                <textarea name="message" 
+                          class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          rows="3"
+                          placeholder="Informação adicional..."></textarea>
+            </div>
+            
+            <button type="submit" id="send-btn"
+                    class="w-full bg-blue-600 text-white py-4 rounded-lg text-lg font-semibold hover:bg-blue-700 transition">
+                📢 Enviar Notificação
+            </button>
+        </form>
+        
+        <div id="response" class="mt-4"></div>
+        
+        <!-- Status de notificações enviadas -->
+        <div id="sent-notifications" class="mt-6">
+            <h3 class="font-semibold mb-2">Notificações Enviadas:</h3>
+            <div id="notifications-list" class="space-y-2">
+                <p class="text-gray-500 text-sm">Nenhuma notificação ativa</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Utilitário de Notificação seguro (sem auto-request)
+    window.NotificationUtils = (function() {
+        function supported() { return 'Notification' in window; }
+        function isGranted() { return supported() && Notification.permission === 'granted'; }
+        function isDefault() { return supported() && Notification.permission === 'default'; }
+        function requestByUserGesture() {
+            if (!supported()) return Promise.resolve('unsupported');
+            if (!isDefault()) return Promise.resolve(Notification.permission);
+            try {
+                const p = Notification.requestPermission();
+                if (p && typeof p.then === 'function') return p;
+                return new Promise(resolve => Notification.requestPermission(perm => resolve(perm)));
+            } catch (e) { return Promise.reject(e); }
+        }
+        function showBrowserNotification(title, body, options = {}) {
+            if (!supported()) return;
+            if (Notification.permission !== 'granted') return;
+            new Notification(title, { body, icon: options.icon || '/static/notification-icon.png', ...options });
+        }
+        return { supported, isGranted, isDefault, requestByUserGesture, showBrowserNotification };
+    })();
+
+    // Banner de permissão
+    document.addEventListener('DOMContentLoaded', function() {
+        if (window.NotificationUtils.supported() && !window.NotificationUtils.isGranted()) {
+            const banner = document.getElementById('notification-permission-banner');
+            if (banner) banner.style.display = 'block';
+        }
+    });
+
+    document.addEventListener('click', async function(e) {
+        if (e.target && e.target.id === 'enable-notifications') {
+            try {
+                const perm = await window.NotificationUtils.requestByUserGesture();
+                if (perm === 'granted') {
+                    window.NotificationUtils.showBrowserNotification('Notificações ativadas', 'Você receberá alertas em tempo real.');
+                    document.getElementById('notification-permission-banner')?.remove();
+                }
+            } catch (err) {
+                console.error('Erro ao solicitar permissão de notificação:', err);
+            }
+        }
+    });
+
+    // Desbloqueio de áudio
+    const notifyAudio = new Audio('/static/audio/notification.mp3');
+    let audioUnlocked = false;
+    function unlockAudio() {
+        if (audioUnlocked) return;
+        notifyAudio.play().then(() => {
+            notifyAudio.pause();
+            notifyAudio.currentTime = 0;
+            audioUnlocked = true;
+        }).catch(() => {});
+    }
+    window.addEventListener('click', unlockAudio, { once: true });
+    function playNotificationSound() {
+        if (!audioUnlocked) return;
+        notifyAudio.currentTime = 0;
+        notifyAudio.play().catch(()=>{});
+    }
+
+
+    // WebSocket connection para monitors
+    let ws;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    
+    // Map para controlar timers de remoção
+    const removalTimers = new Map();
+    const notifications = new Map(); // Para rastrear notificações
+    
+    function connectWebSocket() {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        ws = new WebSocket(`${wsProtocol}://${window.location.host}/ws/monitor`);
+        
+        ws.onopen = function() {
+            console.log('WebSocket conectado');
+            document.getElementById('ws-status').textContent = 'Conectado';
+            document.getElementById('ws-status').className = 'font-medium text-green-600';
+            reconnectAttempts = 0;
+        };
+        
+        ws.onclose = function() {
+            console.log('WebSocket desconectado');
+            document.getElementById('ws-status').textContent = 'Desconectado';
+            document.getElementById('ws-status').className = 'font-medium text-red-600';
+            
+            // Tentar reconectar
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                setTimeout(connectWebSocket, 2000 * reconnectAttempts);
+            }
+        };
+        
+        ws.onerror = function(error) {
+            console.error('Erro WebSocket:', error);
+            document.getElementById('ws-status').textContent = 'Erro';
+            document.getElementById('ws-status').className = 'font-medium text-red-600';
+        };
+        
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('Mensagem recebida:', data);
+                
+                switch(data.type) {
+                    case 'connection_count':
+                        updateConnectionCount(data.monitors, data.displays);
+                        break;
+                        
+                    case 'notification_sent':
+                        addSentNotification(data.notification_id, data.child_code, data.status || 'pending', data.created_at);
+                        break;
+                        
+                    case 'notification_viewed':
+                        updateNotificationStatus(data.notification_id, 'viewed', data.viewed_at);
+                        break;
+                        
+                    case 'notification_removed':
+                        removeNotificationFromUI(data.notification_id);
+                        break;
+                        
+                    default:
+                        console.log('Tipo de mensagem desconhecido:', data.type);
+                }
+            } catch (error) {
+                console.error('Erro ao processar mensagem:', error);
+            }
+        };
+    }
+    
+    function updateConnectionCount(monitors, displays) {
+        document.getElementById('monitor-count').textContent = monitors;
+        document.getElementById('display-count').textContent = displays;
+    }
+    
+    function addSentNotification(id, code, status, createdAt, viewedAt = null) {
+        // Evitar duplicatas
+        if (notifications.has(id)) {
+            console.log('Notificação já existe:', id);
+            return;
+        }
+        
+        notifications.set(id, { code, status, createdAt, viewedAt });
+        
+        const listElement = document.getElementById('notifications-list');
+        
+        // Remove mensagem "Nenhuma notificação"
+        const emptyMessage = listElement.querySelector('p');
+        if (emptyMessage) {
+            emptyMessage.remove();
+        }
+        
+        const notificationElement = document.createElement('div');
+        notificationElement.id = `notification-${id}`;
+        notificationElement.className = `p-3 rounded border-l-4 transition-all duration-300 ${
+            status === 'viewed' ? 'border-green-500 bg-green-50' : 'border-yellow-500 bg-yellow-50'
+        }`;
+        
+        const timeInfo = status === 'viewed' 
+            ? '<span class="text-xs text-gray-500 block mt-1" id="timer-' + id + '">🕐 Remove em 30 segundos</span>'
+            : '<span class="text-xs text-gray-500 block mt-1" id="timer-' + id + '">🕐 Remove em 5 minutos</span>';
+        
+        notificationElement.innerHTML = `
+            <div class="flex justify-between items-center">
+                <div class="flex-1">
+                    <span class="font-medium">Código: ${code}</span>
+                    <span class="text-sm ${
+                        status === 'viewed' ? 'text-green-600' : 'text-yellow-600'
+                    } block" id="status-${id}">
+                        ${status === 'viewed' ? '✅ Visualizado' : '⏳ Pendente'}
+                    </span>
+                    ${timeInfo}
+                </div>
+                <button onclick="removeNotificationManually('${id}')" 
+                        class="text-red-500 hover:text-red-700 text-sm ml-2">
+                    ✖️
+                </button>
+            </div>
+        `;
+        
+        listElement.insertBefore(notificationElement, listElement.firstChild);
+        
+        // Iniciar timer baseado no status
+        const delayMs = status === 'viewed' ? 30000 : 300000; // 30s ou 5min
+        startRemovalTimer(id, delayMs);
+        
+        console.log(`Notificação adicionada: ${id} - ${code} (${status})`);
+    }
+    
+    function updateNotificationStatus(id, status, viewedAt) {
+        if (!notifications.has(id)) {
+            console.log('Notificação não encontrada para atualizar:', id);
+            return;
+        }
+        
+        const notification = notifications.get(id);
+        notification.status = status;
+        notification.viewedAt = viewedAt;
+        
+        const element = document.getElementById(`notification-${id}`);
+        if (element) {
+            element.className = 'p-3 rounded border-l-4 transition-all duration-300 border-green-500 bg-green-50';
+            
+            const statusSpan = document.getElementById(`status-${id}`);
+            if (statusSpan) {
+                statusSpan.innerHTML = '✅ Visualizado';
+                statusSpan.className = 'text-sm text-green-600 block';
+            }
+            
+            const timerSpan = document.getElementById(`timer-${id}`);
+            if (timerSpan) {
+                timerSpan.innerHTML = '🕐 Remove em 30 segundos';
+            }
+            
+            // Cancela timer anterior e inicia novo de 30 segundos
+            cancelRemovalTimer(id);
+            startRemovalTimer(id, 30000);
+            
+            console.log(`Status atualizado: ${id} -> ${status}`);
+        }
+    }
+    
+    function startRemovalTimer(notificationId, delayMs) {
+        // Cancela timer anterior se existir
+        cancelRemovalTimer(notificationId);
+        
+        // Cria novo timer com countdown visual
+        let remainingSeconds = Math.ceil(delayMs / 1000);
+        const timerSpan = document.getElementById(`timer-${notificationId}`);
+        
+        const updateTimer = () => {
+            if (timerSpan) {
+                const minutes = Math.floor(remainingSeconds / 60);
+                const seconds = remainingSeconds % 60;
+                const timeText = minutes > 0 
+                    ? `🕐 Remove em ${minutes}m ${seconds}s`
+                    : `🕐 Remove em ${seconds}s`;
+                timerSpan.innerHTML = timeText;
+            }
+            
+            remainingSeconds--;
+            
+            if (remainingSeconds >= 0) {
+                const timerId = setTimeout(updateTimer, 1000);
+                removalTimers.set(`countdown-${notificationId}`, timerId);
+            } else {
+                removeNotificationFromUI(notificationId);
+            }
+        };
+        
+        updateTimer();
+        
+        console.log(`Timer iniciado para ${notificationId}: ${delayMs}ms`);
+    }
+    
+    function cancelRemovalTimer(notificationId) {
+        // Cancela timer principal
+        if (removalTimers.has(notificationId)) {
+            clearTimeout(removalTimers.get(notificationId));
+            removalTimers.delete(notificationId);
+        }
+        
+        // Cancela timer de countdown
+        if (removalTimers.has(`countdown-${notificationId}`)) {
+            clearTimeout(removalTimers.get(`countdown-${notificationId}`));
+            removalTimers.delete(`countdown-${notificationId}`);
+        }
+    }
+    
+    function removeNotificationFromUI(notificationId) {
+        const element = document.getElementById(`notification-${notificationId}`);
+        if (element) {
+            // Animação de fade out
+            element.style.opacity = '0';
+            element.style.transform = 'translateX(-100%)';
+            
+            setTimeout(() => {
+                element.remove();
+                notifications.delete(notificationId);
+                cancelRemovalTimer(notificationId);
+                
+                // Se não há mais notificações, mostra mensagem
+                const listElement = document.getElementById('notifications-list');
+                if (listElement.children.length === 0) {
+                    listElement.innerHTML = '<p class="text-gray-500 text-sm">Nenhuma notificação ativa</p>';
+                }
+                
+                console.log(`Notificação removida: ${notificationId}`);
+            }, 300);
+        }
+    }
+    
+    function removeNotificationManually(notificationId) {
+        // Remove via WebSocket se possível
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'remove_notification',
+                notification_id: notificationId
+            }));
+        }
+        
+        // Remove da UI imediatamente
+        removeNotificationFromUI(notificationId);
+    }
+    
+    // Reset form after submission
+    document.getElementById('notification-form').addEventListener('htmx:afterRequest', function(event) {
+        if (event.detail.successful) {
+            this.reset();
+            document.getElementById('response').innerHTML = 
+                '<div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">✅ Notificação enviada com sucesso!</div>';
+            
+            setTimeout(() => {
+                document.getElementById('response').innerHTML = '';
+            }, 3000);
+        }
+    });
+
+    // Tentar pedir permissão no clique do botão de envio (gesto do usuário)
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.addEventListener('click', async function() {
+            if (window.NotificationUtils.supported() && window.NotificationUtils.isDefault()) {
+                try { await window.NotificationUtils.requestByUserGesture(); } catch(e) {}
+            }
+        }, { capture: true });
+    }
+    
+    // Cleanup timers when page unloads
+    window.addEventListener('beforeunload', function() {
+        removalTimers.forEach(timer => clearTimeout(timer));
+        removalTimers.clear();
+    });
+    
+    // Inicializar WebSocket
+    connectWebSocket();
+
+</script>
+{% endblock %}

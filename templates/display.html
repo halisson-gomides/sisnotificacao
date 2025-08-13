@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Display - Notificação{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-900 text-white p-8">
+    <div class="text-center mb-8">
+        <h1 class="text-4xl font-bold text-blue-400 mb-2">
+            🏛️ Ministério Infantil
+        </h1>
+        <p class="text-xl text-gray-300">
+            🖥️ Display - Notificações
+        </p>
+
+        <!-- Banner para ativar notificações -->
+        <div id="notification-permission-banner" class="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200" style="display:none;">
+            <div class="flex items-center justify-between">
+                <div class="text-sm text-yellow-800">
+                Ative as notificações do navegador para ser avisado quando a mídia visualizar um código.
+                </div>
+                <button id="enable-notifications" class="ml-3 bg-yellow-600 text-white px-3 py-2 rounded hover:bg-yellow-700">
+                Ativar Notificações
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="notifications-container" class="max-w-4xl mx-auto">
+        <div id="no-notifications" class="text-center text-gray-400 text-xl">
+            Nenhuma notificação pendente
+        </div>
+        
+        <div id="notifications-list" class="space-y-4 hidden"></div>
+    </div>
+    
+    <!-- Audio for notifications -->
+    <audio id="notification-sound" preload="auto">
+        <source src="{{ url_for('static', path='/audio/notification.mp3') }}" type="audio/mpeg">
+    </audio>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // WebSocket connection para displays
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${wsProtocol}://${window.location.host}/ws/display`);
+    const notificationSound = document.getElementById('notification-sound');
+    
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'new_notification') {
+            addNotification(data.notification);
+            playNotificationSound();
+        } else if (data.type === 'notification_removed') {
+            removeNotification(data.notification_id);
+        }
+    };
+    
+    function addNotification(notification) {
+        const container = document.getElementById('notifications-list');
+        const noNotifications = document.getElementById('no-notifications');
+        
+        noNotifications.classList.add('hidden');
+        container.classList.remove('hidden');
+        
+        const notificationElement = document.createElement('div');
+        notificationElement.id = `display-notification-${notification.id}`;
+        notificationElement.className = `
+            notification-card p-6 rounded-lg shadow-lg border-l-8 
+            ${notification.priority === 'urgente' ? 
+                'bg-red-100 border-red-500 text-red-900' : 
+                'bg-blue-100 border-blue-500 text-blue-900'
+            }
+            animate-pulse
+        `;
+        
+        notificationElement.innerHTML = `
+            <div class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-3xl font-bold mb-2">
+                        ${notification.priority === 'urgente' ? '🚨 Urgente:' : '🔔 Chamar:'} 
+                         ${notification.child_code}
+                    </h2>
+                    ${notification.message ? 
+                        `
+                        <div class="mb-8 bg-slate-800 rounded-md flex p-2 text-white items-center">
+                        <p class="text-lg text-center">${notification.message}</p>
+                        </div>` : ''
+                    }
+                    <p class="text-sm opacity-75 mt-2">
+                        ${notification.created_at}
+                    </p>
+                </div>
+                <button onclick="markAsViewed('${notification.id}')"
+                        class="cursor-pointer bg-purple-800 border-2 border-dashed border-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg text-lg font-semibold transition">
+                    ✅ Dar Visto
+                </button>
+            </div>
+        `;
+        
+        container.appendChild(notificationElement);
+    }
+    
+    function removeNotification(notificationId) {
+        const element = document.getElementById(`display-notification-${notificationId}`);
+        if (element) {
+            element.remove();
+        }
+        
+        // Show "no notifications" if empty
+        const container = document.getElementById('notifications-list');
+        const noNotifications = document.getElementById('no-notifications');
+        
+        if (container.children.length === 0) {
+            container.classList.add('hidden');
+            noNotifications.classList.remove('hidden');
+        }
+    }
+    
+    function markAsViewed(notificationId) {
+        fetch(`/api/mark-viewed/${notificationId}`, {
+            method: 'POST',
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                removeNotification(notificationId);
+            }
+        });
+    }
+    
+    function playNotificationSound() {
+        // Tenta reproduzir som (pode falhar em alguns browsers)
+        try {
+            notificationSound.play().catch(e => console.log('Som não disponível'));
+        } catch (e) {
+            console.log('Som não disponível');
+        }
+    }
+
+
+    // Mostrar o banner se necessário
+    document.addEventListener('DOMContentLoaded', function() {
+        if (window.NotificationUtils.supported() && !window.NotificationUtils.isGranted()) {
+        const banner = document.getElementById('notification-permission-banner');
+        if (banner) banner.style.display = 'block';
+        }
+    });
+
+    // Gesto do usuário: clique no botão ativa a requisição de permissão
+    document.addEventListener('click', async function(e) {
+        if (e.target && e.target.id === 'enable-notifications') {
+        try {
+            const perm = await window.NotificationUtils.requestByUserGesture();
+            if (perm === 'granted') {
+            window.NotificationUtils.showBrowserNotification('Notificações ativadas', 'Você receberá alertas em tempo real.');
+            const banner = document.getElementById('notification-permission-banner');
+            if (banner) banner.remove();
+            } else {
+            // Usuário negou ou fechou; mantenha banner visível para tentar novamente
+            }
+        } catch (err) {
+            console.error('Erro ao solicitar permissão de notificação:', err);
+        }
+        }
+    });
+</script>
+{% endblock %}
