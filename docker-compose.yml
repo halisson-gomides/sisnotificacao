@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  sisnotificacao:
+    container_name: app-sisnotificacao
+    restart: unless-stopped
+    networks:
+      - web-apps
+    build:
+      context: .
+      dockerfile: Dockerfile    
+    volumes:
+      - ./:/app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sisnotificacao.rule=Host(`notificacao.kingdomsys.com`)"
+      - "traefik.http.routers.sisnotificacao.entrypoints=websecure"
+      - "traefik.http.routers.sisnotificacao.tls=true"
+      - "traefik.http.routers.sisnotificacao.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sisnotificacao.loadbalancer.server.port=8000"
+      # Middlewares úteis (compressão e headers)
+      - "traefik.http.middlewares.sisnotificacao-compress.compress=true"
+      - "traefik.http.routers.sisnotificacao.middlewares=sisnotificacao-compress"
+
+      # (Opcional) Sticky se você tiver sessão em memória
+      # - "traefik.http.services.sisnotificacao.loadbalancer.sticky=true"
+
+networks:
+  web-apps:
+    external: true
+# para inicializar: docker-compose down && docker-compose build --no-cache && docker-compose up -d --force-recreate
+# dentro da pasta da aplicação, rodar: python -c "from src.utils.security import generate_key; generate_key()"
