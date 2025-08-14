@@ -8,7 +8,7 @@
         <h1 class="text-4xl font-bold text-blue-400 mb-2">
             🏛️ Ministério Infantil
         </h1>
-        <p class="text-xl text-gray-300">
+        <p class="text-xl text-gray-300 py-4">
             🖥️ Display - Notificações
         </p>
 
@@ -19,7 +19,7 @@
                 Ative as notificações do navegador para ser avisado quando a mídia visualizar um código.
                 </div>
                 <button id="enable-notifications" class="ml-3 bg-yellow-600 text-white px-3 py-2 rounded hover:bg-yellow-700">
-                Ativar Notificações
+                Ativar
                 </button>
             </div>
         </div>
@@ -79,9 +79,9 @@
         notificationElement.innerHTML = `
             <div class="flex justify-between items-center">
                 <div>
-                    <h2 class="text-3xl font-bold mb-2">
+                    <h2 class="text-3xl mb-2 flex">
                         ${notification.priority === 'urgente' ? '🚨 Urgente:' : '🔔 Chamar:'} 
-                         ${notification.child_code}
+                         <p class="font-bold uppercase  ps-1">${notification.child_code}</p>
                     </h2>
                     ${notification.message ? 
                         `
@@ -155,12 +155,9 @@
         try {
             const perm = await window.NotificationUtils.requestByUserGesture();
             if (perm === 'granted') {
-            window.NotificationUtils.showBrowserNotification('Notificações ativadas', 'Você receberá alertas em tempo real.');
-            const banner = document.getElementById('notification-permission-banner');
-            if (banner) banner.remove();
-            } else {
-            // Usuário negou ou fechou; mantenha banner visível para tentar novamente
-            }
+                window.NotificationUtils.showBrowserNotification('Notificações ativadas', 'Você receberá alertas em tempo real.');                           
+            } 
+            document.getElementById('notification-permission-banner').remove();
         } catch (err) {
             console.error('Erro ao solicitar permissão de notificação:', err);
         }

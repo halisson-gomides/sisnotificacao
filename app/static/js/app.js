@@ -14,6 +14,7 @@ window.NotificationUtils = (function() {
 
     // Sempre chamar esta função dentro de um evento de clique/gesto do usuário
     function requestByUserGesture() {
+        
         if (!supported()) return Promise.resolve('unsupported');
 
         if (!isDefault()) {

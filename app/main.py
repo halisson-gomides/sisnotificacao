@@ -114,6 +114,7 @@ async def send_notification(
     notification = await manager.create_notification(child_code, priority, message)
     return {"success": True, "notification_id": notification.id}
 
+
 @app.post("/api/mark-viewed/{notification_id}")
 async def mark_notification_viewed(notification_id: str):
     success = await manager.mark_as_viewed(notification_id)

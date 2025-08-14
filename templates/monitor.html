@@ -16,7 +16,7 @@
                 Ative as notificações do navegador para ser avisado quando a mídia visualizar um código.
                 </div>
                 <button id="enable-notifications" class="ml-3 bg-yellow-600 text-white px-3 py-2 rounded hover:bg-yellow-700">
-                Ativar Notificações
+                Ativar
                 </button>
             </div>
         </div>
@@ -118,13 +118,14 @@
     });
 
     document.addEventListener('click', async function(e) {
+        
         if (e.target && e.target.id === 'enable-notifications') {
             try {
                 const perm = await window.NotificationUtils.requestByUserGesture();
                 if (perm === 'granted') {
                     window.NotificationUtils.showBrowserNotification('Notificações ativadas', 'Você receberá alertas em tempo real.');
-                    document.getElementById('notification-permission-banner')?.remove();
                 }
+                document.getElementById('notification-permission-banner').remove();
             } catch (err) {
                 console.error('Erro ao solicitar permissão de notificação:', err);
             }
@@ -163,15 +164,13 @@
         const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         ws = new WebSocket(`${wsProtocol}://${window.location.host}/ws/monitor`);
         
-        ws.onopen = function() {
-            console.log('WebSocket conectado');
+        ws.onopen = function() {            
             document.getElementById('ws-status').textContent = 'Conectado';
             document.getElementById('ws-status').className = 'font-medium text-green-600';
             reconnectAttempts = 0;
         };
         
-        ws.onclose = function() {
-            console.log('WebSocket desconectado');
+        ws.onclose = function() {            
             document.getElementById('ws-status').textContent = 'Desconectado';
             document.getElementById('ws-status').className = 'font-medium text-red-600';
             
@@ -191,7 +190,6 @@
         ws.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
-                console.log('Mensagem recebida:', data);
                 
                 switch(data.type) {
                     case 'connection_count':
@@ -199,15 +197,17 @@
                         break;
                         
                     case 'notification_sent':
-                        addSentNotification(data.notification_id, data.child_code, data.status || 'pending', data.created_at);
+                        addSentNotification(data.notification_id, data.child_code, data.status || 'pendente', data.created_at);
                         break;
                         
                     case 'notification_viewed':
-                        updateNotificationStatus(data.notification_id, 'viewed', data.viewed_at);
+                        updateNotificationStatus(data.notification_id, 'visto', data.viewed_at);
                         break;
                         
-                    case 'notification_removed':
-                        removeNotificationFromUI(data.notification_id);
+                    case 'notification_removed':                        
+                        setTimeout(() => {
+                            removeNotificationFromUI(data.notification_id);
+                        }, 30000);
                         break;
                         
                     default:
@@ -227,7 +227,6 @@
     function addSentNotification(id, code, status, createdAt, viewedAt = null) {
         // Evitar duplicatas
         if (notifications.has(id)) {
-            console.log('Notificação já existe:', id);
             return;
         }
         
@@ -244,24 +243,24 @@
         const notificationElement = document.createElement('div');
         notificationElement.id = `notification-${id}`;
         notificationElement.className = `p-3 rounded border-l-4 transition-all duration-300 ${
-            status === 'viewed' ? 'border-green-500 bg-green-50' : 'border-yellow-500 bg-yellow-50'
+            status === 'visto' ? 'border-green-500 bg-green-50' : 'border-yellow-500 bg-yellow-50'
         }`;
         
-        const timeInfo = status === 'viewed' 
+        const timeInfo = status === 'visto' 
             ? '<span class="text-xs text-gray-500 block mt-1" id="timer-' + id + '">🕐 Remove em 30 segundos</span>'
             : '<span class="text-xs text-gray-500 block mt-1" id="timer-' + id + '">🕐 Remove em 5 minutos</span>';
         
         notificationElement.innerHTML = `
             <div class="flex justify-between items-center">
                 <div class="flex-1">
-                    <span class="font-medium">Código: ${code}</span>
-                    <span class="text-sm ${
-                        status === 'viewed' ? 'text-green-600' : 'text-yellow-600'
-                    } block" id="status-${id}">
-                        ${status === 'viewed' ? '✅ Visualizado' : '⏳ Pendente'}
-                    </span>
+                    Código:<span class="font-medium"> ${code}</span>                    
                     ${timeInfo}
                 </div>
+                <span class="me-8 text-sm ${
+                        status === 'visto' ? 'text-green-600' : 'text-yellow-600'
+                    }" id="status-${id}">
+                        ${status === 'visto' ? '✅ Visualizado' : '⏳ Pendente'}
+                </span>
                 <button onclick="removeNotificationManually('${id}')" 
                         class="text-red-500 hover:text-red-700 text-sm ml-2">
                     ✖️
@@ -272,15 +271,13 @@
         listElement.insertBefore(notificationElement, listElement.firstChild);
         
         // Iniciar timer baseado no status
-        const delayMs = status === 'viewed' ? 30000 : 300000; // 30s ou 5min
+        const delayMs = status === 'visto' ? 30000 : 300000; // 30s ou 5min
         startRemovalTimer(id, delayMs);
         
-        console.log(`Notificação adicionada: ${id} - ${code} (${status})`);
     }
     
     function updateNotificationStatus(id, status, viewedAt) {
         if (!notifications.has(id)) {
-            console.log('Notificação não encontrada para atualizar:', id);
             return;
         }
         
@@ -295,7 +292,7 @@
             const statusSpan = document.getElementById(`status-${id}`);
             if (statusSpan) {
                 statusSpan.innerHTML = '✅ Visualizado';
-                statusSpan.className = 'text-sm text-green-600 block';
+                statusSpan.className = 'me-8 text-sm text-green-600 block';
             }
             
             const timerSpan = document.getElementById(`timer-${id}`);
@@ -307,7 +304,6 @@
             cancelRemovalTimer(id);
             startRemovalTimer(id, 30000);
             
-            console.log(`Status atualizado: ${id} -> ${status}`);
         }
     }
     
@@ -341,7 +337,6 @@
         
         updateTimer();
         
-        console.log(`Timer iniciado para ${notificationId}: ${delayMs}ms`);
     }
     
     function cancelRemovalTimer(notificationId) {
@@ -376,7 +371,6 @@
                     listElement.innerHTML = '<p class="text-gray-500 text-sm">Nenhuma notificação ativa</p>';
                 }
                 
-                console.log(`Notificação removida: ${notificationId}`);
             }, 300);
         }
     }

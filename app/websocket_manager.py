@@ -159,6 +159,9 @@ class ConnectionManager:
                 "type": "notification_removed",
                 "notification_id": notification_id
             }))
+
+            # Remove a notificação
+            await self.remove_notification(notification_id)
             
             return True
         return False
@@ -234,5 +237,5 @@ manager = ConnectionManager()
 # Task para limpeza automática (fallback de segurança)
 async def cleanup_task():
     while True:
-        await asyncio.sleep(300)  # Executa a cada 5 minutos
+        await asyncio.sleep(120)  # Executa a cada 2 minutos
         await manager.cleanup_old_notifications()
