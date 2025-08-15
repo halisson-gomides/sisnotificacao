@@ -8,7 +8,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Dependências do sistema mínimas (ex: curl p/ healthcheck opcional)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl tini\
+    curl tini tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Define o diretório de trabalho no container

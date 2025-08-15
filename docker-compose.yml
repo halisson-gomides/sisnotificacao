@@ -3,6 +3,8 @@ version: '3.9'
 services:
   sisnotificacao:
     container_name: app-sisnotificacao
+    environment:
+      - TZ=America/Sao_Paulo
     restart: unless-stopped
     networks:
       - web-apps
@@ -11,6 +13,8 @@ services:
       dockerfile: Dockerfile    
     volumes:
       - ./:/app
+       - /etc/localtime:/etc/localtime:ro 
+       - /etc/timezone:/etc/timezone:ro 
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.sisnotificacao.rule=Host(`notificacao.kingdomsys.com`)"
