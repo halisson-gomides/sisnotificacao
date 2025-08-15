@@ -13,8 +13,8 @@ services:
       dockerfile: Dockerfile    
     volumes:
       - ./:/app
-       - /etc/localtime:/etc/localtime:ro 
-       - /etc/timezone:/etc/timezone:ro 
+      - /etc/localtime:/etc/localtime:ro 
+      - /etc/timezone:/etc/timezone:ro 
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.sisnotificacao.rule=Host(`notificacao.kingdomsys.com`)"
