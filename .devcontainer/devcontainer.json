@@ -20,7 +20,8 @@
       "extensions": [
         "ms-python.python",
         "bradlc.vscode-tailwindcss",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "astral-sh.ty"
       ]
     }
   }

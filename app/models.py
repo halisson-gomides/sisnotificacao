@@ -19,8 +19,3 @@ class Notification(BaseModel):
     created_at: str
     viewed_at: Optional[str] = None
     message: Optional[str] = None
-
-class NotificationCreate(BaseModel):
-    child_code: str
-    priority: Priority = Priority.NORMAL
-    message: Optional[str] = None

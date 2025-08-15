@@ -6,7 +6,6 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import asyncio
 from .websocket_manager import manager, cleanup_task
-from .models import NotificationCreate
 import logging
 
 # Configuração do logger
