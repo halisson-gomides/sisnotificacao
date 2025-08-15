@@ -19,8 +19,8 @@
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-python.black-formatter",
-        "bradlc.vscode-tailwindcss"
+        "bradlc.vscode-tailwindcss",
+        "charliermarsh.ruff"
       ]
     }
   }
