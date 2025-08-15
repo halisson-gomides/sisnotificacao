@@ -12,8 +12,7 @@ services:
       context: .
       dockerfile: Dockerfile    
     volumes:
-      - ./:/app
-      - /etc/localtime:/etc/localtime:ro 
+      - ./:/app 
       - /etc/timezone:/etc/timezone:ro 
     labels:
       - "traefik.enable=true"
