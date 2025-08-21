@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import asyncio
+import uvloop
 from .websocket_manager import manager, cleanup_task
 import logging
 
@@ -28,6 +29,8 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+# Usar uvloop para melhor performance
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 app = FastAPI(title="Sistema de Notificação", 
               lifespan=lifespan,
@@ -43,7 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ Headers específicos para WebSocket
+# Headers específicos para WebSocket
 @app.middleware("http")
 async def add_websocket_headers(request: Request, call_next):
     response = await call_next(request)
@@ -56,7 +59,7 @@ async def add_websocket_headers(request: Request, call_next):
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-
+###################################################
 # Rotas de páginas
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -80,6 +83,7 @@ async def remove_notification(notification_id: str):
     return {"success": success, "notification_id": notification_id}
 
 
+###################################################
 # WebSocket endpoints
 @app.websocket("/ws/monitor")
 async def websocket_monitor(websocket: WebSocket):
@@ -92,6 +96,7 @@ async def websocket_monitor(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect_monitor(websocket)
 
+
 @app.websocket("/ws/display")
 async def websocket_display(websocket: WebSocket):
     await manager.connect_display(websocket)
@@ -103,6 +108,8 @@ async def websocket_display(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect_display(websocket)
 
+
+###################################################
 # API endpoints
 @app.post("/api/send-notification")
 async def send_notification(
@@ -118,6 +125,7 @@ async def send_notification(
 async def mark_notification_viewed(notification_id: str):
     success = await manager.mark_as_viewed(notification_id)
     return {"success": success}
+
 
 @app.get("/api/notifications")
 async def get_notifications():

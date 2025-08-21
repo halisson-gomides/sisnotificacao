@@ -14,6 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Configurações de sistema para melhor performance de rede/websockets
+RUN echo 'net.core.somaxconn = 1024' >> /etc/sysctl.conf && \
+    echo 'net.ipv4.tcp_keepalive_time = 600' >> /etc/sysctl.conf && \
+    echo 'net.ipv4.tcp_keepalive_intvl = 60' >> /etc/sysctl.conf && \
+    echo 'net.ipv4.tcp_keepalive_probes = 3' >> /etc/sysctl.conf && \
+    echo 'fs.file-max = 65536' >> /etc/sysctl.conf
+
 # Define o diretório de trabalho no container
 WORKDIR /app
 
@@ -21,8 +28,8 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Instala as dependências
-RUN python -m pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copia o código
 COPY . .
@@ -30,6 +37,11 @@ COPY . .
 # Cria usuário não-root e ajusta permissões
 RUN useradd -u 10001 -ms /bin/bash appuser \
     && chown -R appuser:appuser /app
+
+# Configurar limits para o usuário
+RUN echo 'appuser soft nofile 65536' >> /etc/security/limits.conf && \
+    echo 'appuser hard nofile 65536' >> /etc/security/limits.conf
+    
 USER appuser
 
 # Expor porta interna
@@ -45,4 +57,11 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 # Execução do servidor ASGI
 # --proxy-headers para respeitar X-Forwarded-* vindo do Traefik
 # --forwarded-allow-ips="*" se confia apenas no Traefik na mesma rede
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--proxy-headers", \
+     "--forwarded-allow-ips", "*", \
+     "--loop", "uvloop", \
+     "--http", "httptools", \
+     "--lifespan", "on"]

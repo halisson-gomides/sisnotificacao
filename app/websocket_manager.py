@@ -1,5 +1,5 @@
 from fastapi import WebSocket
-from typing import List, Dict, Optional
+from typing import Set, Dict, Optional
 import json
 import asyncio
 from datetime import datetime, timedelta
@@ -14,16 +14,15 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     def __init__(self):
         # Armazena conexões por tipo (monitor/display)
-        self.monitors: List[WebSocket] = []
-        self.displays: List[WebSocket] = []
+        self.monitors: Set[WebSocket] = set()
+        self.displays: Set[WebSocket] = set()
         # Armazena notificações ativas
         self.notifications: Dict[str, Notification] = {}
-        # NÃO usar timers automáticos no backend - deixar frontend controlar
         
 
     async def connect_monitor(self, websocket: WebSocket):
         await websocket.accept()
-        self.monitors.append(websocket)
+        self.monitors.add(websocket)
         logger.info(f"Monitor conectado. Total: {len(self.monitors)}")
         
         # Enviar estado atual para o novo monitor
@@ -35,15 +34,17 @@ class ConnectionManager:
         
     async def connect_display(self, websocket: WebSocket):
         await websocket.accept()
-        self.displays.append(websocket)
+        self.displays.add(websocket)
         logger.info(f"Display conectado. Total: {len(self.displays)}")
         # Envia notificações pendentes
         await self.send_pending_notifications(websocket)
+        # Notificar todos os monitores sobre nova conexão
+        await self.broadcast_monitor_count()
 
         
     def disconnect_monitor(self, websocket: WebSocket):
         if websocket in self.monitors:
-            self.monitors.remove(websocket)
+            self.monitors.discard(websocket)
             logger.info(f"Monitor desconectado. Total: {len(self.monitors)}")
             # Atualizar contagem para monitores restantes
             asyncio.create_task(self.broadcast_monitor_count())
@@ -51,8 +52,10 @@ class ConnectionManager:
             
     def disconnect_display(self, websocket: WebSocket):
         if websocket in self.displays:
-            self.displays.remove(websocket)
+            self.displays.discard(websocket)
             logger.info(f"Display desconectado. Total: {len(self.displays)}")
+            # Atualizar contagem para monitores restantes
+            asyncio.create_task(self.broadcast_monitor_count())
 
     
     async def send_current_state(self, websocket: WebSocket):
@@ -119,22 +122,25 @@ class ConnectionManager:
         self.notifications[notification_id] = notification
         logger.info(f"Notificação criada: {notification_id} - {child_code}")
         
-        # Envia para todos os displays
         message_data = {
             "type": "new_notification",
             "notification": notification.model_dump()
         }
-        
-        await self.broadcast_to_displays(json.dumps(message_data))
-        
-        # Confirma para monitores
-        await self.broadcast_to_monitors(json.dumps({
+        monitor_data = {
             "type": "notification_sent",
             "notification_id": notification_id,
             "child_code": child_code,
             "status": "pending",
             "created_at": notification.created_at
-        }))
+        }
+        
+        # Executar broadcasts em paralelo
+        # Envia para todos os displays e Confirma para monitores
+        await asyncio.gather(
+            self.broadcast_to_displays(json.dumps(message_data)),
+            self.broadcast_to_monitors(json.dumps(monitor_data)),
+            return_exceptions=True
+        )
         
         return notification
     
@@ -147,21 +153,24 @@ class ConnectionManager:
             
             logger.info(f"Notificação marcada como vista: {notification_id}")
             
+            # -- Broadcasts paralelos
             # Notifica todos os monitores
-            await self.broadcast_to_monitors(json.dumps({
-                "type": "notification_viewed",
-                "notification_id": notification_id,
-                "viewed_at": self.notifications[notification_id].viewed_at
-            }))
-            
             # Remove da tela dos displays
-            await self.broadcast_to_displays(json.dumps({
-                "type": "notification_removed",
-                "notification_id": notification_id
-            }))
+            await asyncio.gather(
+                self.broadcast_to_monitors(json.dumps({
+                    "type": "notification_viewed",
+                    "notification_id": notification_id,
+                    "viewed_at": self.notifications[notification_id].viewed_at
+                })),
+                self.broadcast_to_displays(json.dumps({
+                    "type": "notification_removed",
+                    "notification_id": notification_id
+                })),
+                return_exceptions=True
+            )
 
             # Remove a notificação
-            await self.remove_notification(notification_id)
+            asyncio.create_task(self.remove_notification(notification_id))
             
             return True
         return False
@@ -195,7 +204,7 @@ class ConnectionManager:
         
         # Remove conexões mortas
         for monitor in disconnected:
-            self.monitors.remove(monitor)
+            self.monitors.discard(monitor)
 
     
     async def broadcast_to_displays(self, message: str):
